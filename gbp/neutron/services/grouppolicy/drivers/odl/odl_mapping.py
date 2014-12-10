@@ -14,10 +14,11 @@ import netaddr
 import uuid
 
 #from keystoneclient.v2_0 import client as keyclient
+from neutron import manager
 from neutron.common import log
 from neutron.extensions import providernet as pn
 from neutron.extensions import securitygroup as ext_sg
-from neutron import manager
+from neutron.plugins.common import constants
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
 #from neutron.plugins.ml2.drivers.cisco.apic import apic_model
@@ -65,6 +66,13 @@ class ExactlyOneActionPerRuleIsSupportedOnOdlDriver(
         gpexc.GroupPolicyBadRequest):
     message = _("Exactly one action per rule is supported on ODL GBP driver.")
 
+class ClassifierTcpUdpPortRangeNotSupportedOnOdlDriver(
+        gpexc.GroupPolicyBadRequest):
+    message = _("Tcp or Udp port range is not supported on ODL GBP driver.")
+
+class ClassifierUnknownIPProtocolNotSupportedOnOdlDriver(
+        gpexc.GroupPolicyBadRequest):
+    message = _("Unknown IP Protocol is not supported on ODL GBP driver.")
 
 
 class OdlMappingDriver(api.ResourceMappingDriver):
@@ -288,6 +296,90 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         }
         self.odl_manager.delete_action(tenant_id, action_instance)
 
+    def create_policy_classifier_postcommit(self, context):
+        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+
+        if context.current['protocol'] == constants.ICMP:
+            # fill in classifier instance data
+            classifier_instance = {
+                # Use hard coded value based on current ODL implementation
+                "classifier-definition-id":
+                    '79c6fdb2-1e1a-4832-af57-c65baf5c2335',
+                "name": context.current['name'],
+                "parameter-value": [
+                    {
+                        "name": "proto",
+                        #TODO(yapeng): change the hard code value
+                        "int-value": 1,
+                    }
+                ]
+            }
+            self.odl_manager.create_classifier(tenant_id, classifier_instance)
+            return
+
+        # For TCP and UDP protoocol create two classifier (in and out)
+        # fill in dst port classifier instance data
+        classifier_instance = {
+            # Use hard coded value based on current ODL implementation
+            "classifier-definition-id":
+                '4250ab32-e8b8-445a-aebb-e1bd2cdd291f',
+            "name": context.current['name'] + '-dest',
+            "parameter-value": [
+                {
+                    "name": "type",
+                    "string-value": context.current['protocol'],
+                },
+                {
+                    "name": "destport",
+                    "int-value": context.current['port_range'],
+                }
+            ]
+        }
+        self.odl_manager.create_classifier(tenant_id, classifier_instance)
+
+        # fill in src port classifier instance data
+        classifier_instance = {
+            # Use hard coded value based on current ODL implementation
+            "classifier-definition-id":
+                '4250ab32-e8b8-445a-aebb-e1bd2cdd291f',
+            "name": context.current['name'] + '-src',
+            "parameter-value": [
+                {
+                    "name": "type",
+                    "string-value": context.current['protocol'],
+                },
+                {
+                    "name": "sourceport",
+                    "int-value": context.current['port_range'],
+                }
+            ]
+        }
+        self.odl_manager.create_classifier(tenant_id, classifier_instance)
+
+    def delete_policy_classifier_postcommit(self, context):
+        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+
+        if context.current['protocol'] == constants.ICMP:
+            # fill in classifier instance data
+            classifier_instance = {
+                "name": context.current['name']
+            }
+            self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+            return
+
+        # fill in classifier instance data
+        classifier_instance = {
+            "name": context.current['name'] + '-dest',
+        }
+        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+
+        # fill in classifier instance data
+        classifier_instance = {
+            "name": context.current['name'] + '-src',
+        }
+        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+
+
     def create_policy_rule_precommit(self, context):
         if ('policy_actions' in context.current and
                 len(context.current['policy_actions']) != 1):
@@ -334,7 +426,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         for fixed_ip in port['fixed_ips']:
             l3_list.append(
                 {
-                 "ip_address": fixed_ip['ip_address'],
+                 "ip-address": fixed_ip['ip_address'],
                  "l3-context": l3ctx_id
                 }
             )

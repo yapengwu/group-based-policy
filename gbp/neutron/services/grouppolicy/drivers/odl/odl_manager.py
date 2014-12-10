@@ -132,7 +132,7 @@ class OdlManager(object):
         url = self._policy_url + '/' + tenant_id + \
               '/subject-feature-instances/classifier-instance/' + \
               classifier['name']
-        data = {"action-instance": classifier}
+        data = {"classifier-instance": classifier}
         self._sendjson('put', url, self._headers, data)
 
     def delete_classifier(self, tenant_id, classifier):
