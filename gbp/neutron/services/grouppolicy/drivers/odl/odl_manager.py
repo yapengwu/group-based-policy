@@ -55,12 +55,16 @@ class OdlManager(object):
         self._password = cfg.CONF.odl_driver.odl_password
         self._host = cfg.CONF.odl_driver.odl_host
         self._port = cfg.CONF.odl_driver.odl_port
-        self._base_url = 'http://' + self._host + ':' + self._port + '/restconf'
-        self._reg_ep_url = self._base_url + '/operations/openstack-endpoint:register-endpoint'
-        self._unreg_ep_url = self._base_url + '/operations/endpoint:unregister-endpoint'
+        self._base_url = 'http://' + self._host + ':' + \
+            self._port + '/restconf'
+        self._reg_ep_url = self._base_url + \
+            '/operations/openstack-endpoint:register-endpoint'
+        self._unreg_ep_url = self._base_url + \
+            '/operations/endpoint:unregister-endpoint'
         self._tenants_url = self._base_url + '/config/policy:tenants'
         self._policy_url = self._tenants_url + '/policy:tenant'
-        self._nodes_url = self._base_url + '/config/opendaylight-inventory:nodes'
+        self._nodes_url = self._base_url + \
+            '/config/opendaylight-inventory:nodes'
         self._headers = {'Content-type': 'application/yang.data+json',
                          'Accept': 'application/yang.data+json'}
 
@@ -116,92 +120,97 @@ class OdlManager(object):
         """Create policy action"""
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/subject-feature-instances/action-instance/' + action['name']
+            '/subject-feature-instances/action-instance/' + action['name']
         data = {"action-instance": action}
         self._sendjson('put', url, self._headers, data)
 
     def delete_action(self, tenant_id, action):
         """Delete policy action"""
         url = self._policy_url + '/' + tenant_id + \
-              '/subject-feature-instances/action-instance/' + action['name']
+            '/subject-feature-instances/action-instance/' + action['name']
         self._sendjson('delete', url, self._headers)
 
     def create_classifier(self, tenant_id, classifier):
         """Create policy classifier"""
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/subject-feature-instances/classifier-instance/' + \
-              classifier['name']
-        data = {"action-instance": classifier}
+            '/subject-feature-instances/classifier-instance/' + \
+            classifier['name']
+        data = {"classifier-instance": classifier}
         self._sendjson('put', url, self._headers, data)
 
     def delete_classifier(self, tenant_id, classifier):
         """Delete policy classifier"""
         url = self._policy_url + '/' + tenant_id + \
-              '/subject-feature-instances/classifier-instance/' + \
-              classifier['name']
+            '/subject-feature-instances/classifier-instance/' + \
+            classifier['name']
         self._sendjson('delete', url, self._headers)
 
     def create_update_l3_context(self, tenant_id, l3ctx):
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/l3-context/' + l3ctx['id']
+            '/l3-context/' + l3ctx['id']
         data = {"l3-context": l3ctx}
         self._sendjson('put', url, self._headers, data)
 
     def delete_l3_context(self, tenant_id, l3ctx):
         url = self._policy_url + '/' + tenant_id + \
-              '/l3-context/' + l3ctx['id']
+            '/l3-context/' + l3ctx['id']
         self._sendjson('delete', url, self._headers)
 
     def create_update_l2_bridge_domain(self, tenant_id, l2bd):
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/l2-bridge-domain/' + l2bd['id']
+            '/l2-bridge-domain/' + l2bd['id']
         data = {"l2-bridge-domain": l2bd}
         self._sendjson('put', url, self._headers, data)
 
     def delete_l2_bridge_domain(self, tenant_id, l2bd):
         url = self._policy_url + '/' + tenant_id + \
-              '/l2-bridge-domain/' + l2bd['id']
+            '/l2-bridge-domain/' + l2bd['id']
         self._sendjson('delete', url, self._headers)
 
     def create_update_l2_flood_domain(self, tenant_id, l2fd):
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/l2-flood-domain/' + l2fd['id']
+            '/l2-flood-domain/' + l2fd['id']
         data = {"l2-flood-domain": l2fd}
         self._sendjson('put', url, self._headers, data)
 
     def delete_l2_flood_domain(self, tenant_id, l2fd):
         url = self._policy_url + '/' + tenant_id + \
-              '/l2-flood-domain/' + l2fd['id']
+            '/l2-flood-domain/' + l2fd['id']
         self._sendjson('delete', url, self._headers)
 
     def create_update_endpoint_group(self, tenant_id, epg):
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/policy:endpoint-group/' + epg['id']
+            '/policy:endpoint-group/' + epg['id']
         data = {"endpoint-group": epg}
         self._sendjson('put', url, self._headers, data)
 
     def delete_endpoint_group(self, tenant_id, epg):
         url = self._policy_url + '/' + tenant_id + \
-              '/policy:endpoint-group/' + epg['id']
+            '/policy:endpoint-group/' + epg['id']
         self._sendjson('delete', url, self._headers)
 
     def create_update_subnet(self, tenant_id, subnet):
         self._touch_tenant(tenant_id)
         url = self._policy_url + '/' + tenant_id + \
-              '/subnet/' + subnet['id']
+            '/subnet/' + subnet['id']
         data = {"subnet": subnet}
         self._sendjson('put', url, self._headers, data)
 
     def delete_subnet(self, tenant_id, subnet):
         url = self._policy_url + '/' + tenant_id + \
-              '/subnet/' + subnet['id']
+            '/subnet/' + subnet['id']
         self._sendjson('delete', url, self._headers)
 
+    def create_update_contract(self, tenant_id, contract):
+        url = self._policy_url + '/' + tenant_id + \
+            '/policy:contract/' + contract['id']
+        data = {"contract": contract}
+        self._sendjson('put', url, self._headers, data)
 
     def _touch_tenant(self, tenant_id):
         tenant = {
@@ -209,4 +218,3 @@ class OdlManager(object):
         }
         if not self._is_tenant_created(tenant_id):
             self.create_update_tenant(tenant_id, tenant)
-

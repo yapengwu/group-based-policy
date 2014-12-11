@@ -13,15 +13,16 @@
 import netaddr
 import uuid
 
-#from keystoneclient.v2_0 import client as keyclient
+# from keystoneclient.v2_0 import client as keyclient
+from neutron import manager
 from neutron.common import log
 from neutron.extensions import providernet as pn
 from neutron.extensions import securitygroup as ext_sg
-from neutron import manager
+from neutron.plugins.common import constants
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
-#from neutron.plugins.ml2.drivers.cisco.apic import apic_model
-#from neutron.plugins.ml2.drivers.cisco.apic import config
+# from neutron.plugins.ml2.drivers.cisco.apic import apic_model
+# from neutron.plugins.ml2.drivers.cisco.apic import config
 from neutron.plugins.ml2 import models
 from oslo.config import cfg
 
@@ -56,6 +57,11 @@ class RedirectActionNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
                 "driver.")
 
 
+class OnlyAllowActionSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Currently only allow action is supported for ODL GBP "
+                "driver.")
+
+
 class PolicyRuleUpdateNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
     message = _("Policy rule update is not supported on for ODL GBP"
                 "driver.")
@@ -65,6 +71,15 @@ class ExactlyOneActionPerRuleIsSupportedOnOdlDriver(
         gpexc.GroupPolicyBadRequest):
     message = _("Exactly one action per rule is supported on ODL GBP driver.")
 
+
+class ClassifierTcpUdpPortRangeNotSupportedOnOdlDriver(
+        gpexc.GroupPolicyBadRequest):
+    message = _("Tcp or Udp port range is not supported on ODL GBP driver.")
+
+
+class ClassifierUnknownIPProtocolNotSupportedOnOdlDriver(
+        gpexc.GroupPolicyBadRequest):
+    message = _("Unknown IP Protocol is not supported on ODL GBP driver.")
 
 
 class OdlMappingDriver(api.ResourceMappingDriver):
@@ -117,8 +132,8 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             attrs = {'policy_target':
                      {'tenant_id': port['tenant_id'],
                       'name': 'dhcp-%s' % ptg['id'],
-                      'description': _("Implicitly created DHCP policy "
-                                       "target"),
+                      'description': ("Implicitly created DHCP policy "
+                                      "target"),
                       'policy_target_group_id': ptg['id'],
                       'port_id': port['id']}}
             self.gbp_plugin.create_policy_target(plugin_context, attrs)
@@ -160,31 +175,31 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             "name": context.current['name'],
             "description": context.current['description']
         }
-        self.odl_manager.create_update_l3_context(tenant_id,l3ctx)
+        self.odl_manager.create_update_l3_context(tenant_id, l3ctx)
 
     def delete_l3_policy_postcommit(self, context):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
-        l3ctx= {
+        l3ctx = {
             "id": context.current['id']
         }
-        self.odl_manager.delete_l3_context(tenant_id,l3ctx)
+        self.odl_manager.delete_l3_context(tenant_id, l3ctx)
 
     def create_l2_policy_postcommit(self, context):
         super(OdlMappingDriver, self).create_l2_policy_postcommit(context)
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
-        #l2_policy mapped to l2_bridge_domain in ODL
+        # l2_policy mapped to l2_bridge_domain in ODL
         l2bd = {
             "id": context.current['id'],
             "name": context.current['name'],
             "description": context.current['description'],
             "parent": context.current['l3_policy_id']
         }
-        self.odl_manager.create_update_l2_bridge_domain(tenant_id,l2bd)
+        self.odl_manager.create_update_l2_bridge_domain(tenant_id, l2bd)
 
         # Implicit network within l2 policy creation is mapped to l2 flood domain in ODL
         net_id = context.current['network_id']
-        network =  self._core_plugin.get_network(context._plugin_context, net_id)
+        network = self._core_plugin.get_network(context._plugin_context, net_id)
         l2fd = {
             "id": net_id,
             "name": network['name'],
@@ -196,11 +211,11 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         super(OdlMappingDriver, self).delete_l2_policy_postcommit(context)
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
-        #l2_policy mapped to l2_bridge_domain in ODL
-        l2bd= {
+        # l2_policy mapped to l2_bridge_domain in ODL
+        l2bd = {
             "id": context.current['id']
         }
-        self.odl_manager.delete_l2_bridge_domain(tenant_id,l2bd)
+        self.odl_manager.delete_l2_bridge_domain(tenant_id, l2bd)
 
         # Implicit network within l2 policy creation is mapped to l2 flood domain in ODL
         net_id = context.current['network_id']
@@ -214,19 +229,39 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             context)
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
         subnets = context.current['subnets']
+        provided_contract =\
+            self._make_odl_contract_and_clause(context,
+                                          context.current['provided_policy_rule_sets'])
+        consumed_contract =\
+            self._make_odl_contract_and_clause(context,
+                                          context.current['consumed_policy_rule_sets'])
 
-        #PTG mapped to EPG in ODL
+        # PTG mapped to EPG in ODL
         epg = {
             "id": context.current['id'],
             "name": context.current['name'],
             "description": context.current['description'],
             "network-domain": subnets[0]
         }
+
+        if provided_contract:
+            epg['provider-named-selector'] = {
+                "name": context.current['id'] + '-any-' + provided_contract['id'],
+                "contract": provided_contract['id']
+            }
+            self.odl_manager.create_update_contract(tenant_id, provided_contract)
+        if consumed_contract:
+            epg['consumer-named-selector'] = {
+                "name": 'any-' + context.current['id'] + '-' + consumed_contract['id'],
+                "contract": consumed_contract['id']
+            }
+            self.odl_manager.create_update_contract(tenant_id, consumed_contract)
+
         self.odl_manager.create_update_endpoint_group(tenant_id, epg)
 
-        #Implicit subnet within policy target group mapped to subnet in ODL
+        # Implicit subnet within policy target group mapped to subnet in ODL
         for subnet_id in subnets:
-            neutron_subnet =  self._core_plugin.get_subnet(context._plugin_context, subnet_id)
+            neutron_subnet = self._core_plugin.get_subnet(context._plugin_context, subnet_id)
             odl_subnet = {
                 "id": subnet_id,
                 "ip-prefix": neutron_subnet['cidr'],
@@ -235,14 +270,97 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             }
             self.odl_manager.create_update_subnet(tenant_id, odl_subnet)
 
+    def _make_odl_contract_and_clause(self, context, rule_sets):
+        # As no contract/clause in O.S., they will be generated dynamically
+        # when rule sets are associated with PTG:
+        # 1. an association is mapped to a contract with single clause
+        # 2. rule sets mapped to subjects
+        # 3. clause name is concatenation of sorted subject names
+        # 4. contract ID is generated based on the clause name
+        # 5. As a combination of same rule sets produce same sorted subject
+        #    names, consistent clause name and contract ID are guaranteed
+        contract = None
+        if rule_sets:
+            subjects = []
+            subject_names = []
+            for rule_set_id in rule_sets:
+                # a subject is mapped to a rule set
+                subject = self._make_subject(context, rule_set_id)
+                subjects.append(subject)
+                subject_names.append(subject['name'])
+            clause_name = "-".join(sorted(subject_names)).encode('ascii', 'ignore')
+            contract_id = uuid.uuid3(uuid.NAMESPACE_DNS, clause_name).urn[9:]
+            clauses = [
+                {
+                    "name": clause_name,
+                    "subject-refs": subject_names
+                }
+            ]
+            contract = {
+                "id": contract_id,
+                "clause": clauses,
+                "subject": subjects
+            }
+        return contract
+
+    def _make_subject(self, context, rule_set_id):
+        rule_set = context._plugin.get_policy_rule_set(
+            context._plugin_context, rule_set_id
+        )
+        rules = []
+        for rule_id in rule_set['policy_rules']:
+            rule = self._make_odl_rule(context, rule_id)
+            rules.append(rule)
+        return {
+            "name": rule_set['name'],
+            "rule": rules
+        }
+
+    def _make_odl_rule(self, context, rule_id):
+        rule = context._plugin.get_policy_rule(
+            context._plugin_context, rule_id
+        )
+        stack_classifier = context._plugin.get_policy_classifier(
+            context._plugin_context, rule['policy_classifier_id']
+        )
+
+        # while openstack supports only one classifier per rule, the classifier
+        # may mapped to multi classifier in ODL
+        classifier_refs = []
+        classifiers = self._make_odl_classifiers(stack_classifier)
+        for classifier in classifiers:
+            classifier_refs.append(
+                {
+                    "name": classifier['name'],
+                    "direction": classifier['direction']
+                }
+            )
+        action_refs = []
+        for action_id in rule['policy_actions']:
+            action = context._plugin.get_policy_action(
+                context._plugin_context, action_id
+            )
+            action_refs.append(
+                {
+                    "name": action['name']
+                }
+            )
+
+        return {
+            "name": rule['name'],
+            "classifier-ref": classifier_refs,
+            "action-ref": action_refs
+        }
+
     def update_policy_target_group_precommit(self, context):
         raise UpdatePTGNotSupportedOnOdlDriver()
 
     def delete_policy_target_group_postcommit(self, context):
+        # TODO(ODL): delete contract if no one uses it
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
         subnets = context.current['subnets']
 
-        #delete mapped subnets in ODL, and clean them up from neutron
+        # delete mapped subnets in ODL, and clean them up from neutron
         for subnet_id in subnets:
             self._cleanup_subnet(context._plugin_context, subnet_id, None)
             odl_subnet = {
@@ -250,7 +368,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             }
             self.odl_manager.delete_subnet(tenant_id, odl_subnet)
 
-        #delete mapped EPG in ODL
+        # delete mapped EPG in ODL
         epg = {
             "id": context.current['id'],
         }
@@ -266,27 +384,124 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
         # fill in action instance data
-        action_instance = {
-            "action-definition-id": context.current['id'],
-            "name": context.current['name'],
-            "parameter-value": [
-                {
-                    "name": context.current['name'],
-                    "string-value": context.current['action_type'],
-                }
-            ]
-        }
-        self.odl_manager.create_action(tenant_id, action_instance)
+        if context.current['action_type'] == g_const.GP_ACTION_ALLOW:
+            action_definition_id = "f942e8fd-e957-42b7-bd18-f73d11266d17"
+            action_instance = {
+                "action-definition-id": action_definition_id,
+                "name": context.current['name'],
+                "parameter-value": [
+                    {
+                        "name": context.current['name'],
+                        "string-value": context.current['action_type'],
+                    }
+                ]
+            }
+            self.odl_manager.create_action(tenant_id, action_instance)
+        else:
+            raise OnlyAllowActionSupportedOnOdlDriver()
 
     def delete_policy_action_postcommit(self, context):
         super(OdlMappingDriver, self).delete_policy_action_postcommit(context)
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
         # fill in action instance data
-        action_instance= {
+        action_instance = {
             "name": context.current['name']
         }
         self.odl_manager.delete_action(tenant_id, action_instance)
+
+    def create_policy_classifier_postcommit(self, context):
+        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+        classifiers = self._make_odl_classifiers(context.current)
+
+        for classifier in classifiers:
+            classifier_instance = {
+                "classifier-definition-id":
+                    classifier['classifier-definition-id'],
+                "name": classifier['name'],
+                "parameter-value": classifier['parameter-value']
+            }
+            self.odl_manager.create_classifier(tenant_id, classifier_instance)
+
+    def _make_odl_classifiers(self, stack_classifier):
+        classifiers = []
+        if stack_classifier['protocol'] == constants.ICMP:
+            direction = stack_classifier['direction']
+            if direction == 'bi':
+                direction = "bidirectional"
+            classifier = {
+                # Use hard coded value based on current ODL implementation
+                "classifier-definition-id":
+                    '79c6fdb2-1e1a-4832-af57-c65baf5c2335',
+                "name": stack_classifier['name'],
+                "parameter-value": [
+                    {
+                        "name": "proto",
+                        # TODO(yapeng): change the hard code value
+                        "int-value": 1,
+                    }
+                ],
+                "direction": direction
+            }
+            classifiers.append(classifier)
+        else:
+            # For TCP and UDP protoocol create two classifier (in and out)
+            for port in ['sourceport', 'destport']:
+                if stack_classifier['direction'] == 'in':
+                    if port == 'destport':
+                        direction = 'in'
+                    else:
+                        direction = 'out'
+                elif stack_classifier['direction'] == 'out':
+                    if port == 'destport':
+                        direction = 'out'
+                    else:
+                        direction = 'in'
+                else:
+                    direction = 'bidirectional'
+
+                classifier = {
+                    # Use hard coded value based on current ODL implementation
+                    "classifier-definition-id":
+                        '4250ab32-e8b8-445a-aebb-e1bd2cdd291f',
+                    "direction": direction,
+                    "name": stack_classifier['name'] + '-' + port,
+                    "parameter-value": [
+                        {
+                            "name": "type",
+                            "string-value": stack_classifier['protocol'],
+                        },
+                        {
+                            "name": port,
+                            "int-value": stack_classifier['port_range'],
+                        }
+                    ]
+                }
+                classifiers.append(classifier)
+        return classifiers
+
+    def delete_policy_classifier_postcommit(self, context):
+        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+
+        if context.current['protocol'] == constants.ICMP:
+            # fill in classifier instance data
+            classifier_instance = {
+                "name": context.current['name']
+            }
+            self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+            return
+
+        # fill in classifier instance data
+        classifier_instance = {
+            "name": context.current['name'] + '-dest',
+        }
+        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+
+        # fill in classifier instance data
+        classifier_instance = {
+            "name": context.current['name'] + '-src',
+        }
+        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
 
     def create_policy_rule_precommit(self, context):
         if ('policy_actions' in context.current and
@@ -315,7 +530,6 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                 attrs['dFromPort'] = port_min
             # TODO: need to call Odl manager here to set up the rule, or save it somewhere for later
 
-
     def _get_pt_detail(self, context):
         port_id = context.current['port_id']
         port = self._core_plugin.get_port(context._plugin_context, port_id)
@@ -323,29 +537,28 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         ptg_id = context.current['policy_target_group_id']
         ptg = self.gbp_plugin.get_policy_target_group(context._plugin_context,
                                                       ptg_id)
-        l2ctx_id =  ptg['l2_policy_id']
+        l2ctx_id = ptg['l2_policy_id']
         l2ctx = self.gbp_plugin.get_l2_policy(context._plugin_context,
                                               l2ctx_id)
         l3ctx_id = l2ctx['l3_policy_id']
         mac_address = port['mac_address']
         neutron_port_id = 'tap' + port_id[:11]
 
-        l3_list =[]
+        l3_list = []
         for fixed_ip in port['fixed_ips']:
             l3_list.append(
                 {
-                 "ip_address": fixed_ip['ip_address'],
-                 "l3-context": l3ctx_id
+                    "ip-address": fixed_ip['ip_address'],
+                    "l3-context": l3ctx_id
                 }
             )
 
-        l2_list = []
-        l2_list.append(
+        l2_list = [
             {
                 "l2-context": l2ctx_id,
                 "mac-address": mac_address
             }
-        )
+        ]
 
         return {
             "port_id": port_id,
