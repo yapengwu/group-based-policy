@@ -26,7 +26,7 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
     def initialize(self):
         self._odl_gbp = None
         self.vif_type = portbindings.VIF_TYPE_OVS
-        self.self.vif_details = {portbindings.CAP_PORT_FILTER: True}
+        self.vif_details = {portbindings.CAP_PORT_FILTER: True}
 
     @property
     def odl_gbp(self):
