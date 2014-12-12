@@ -30,6 +30,9 @@ cfg.CONF.import_opt('odl_host',
 cfg.CONF.import_opt('odl_port',
                     'gbp.neutron.services.grouppolicy.drivers.odl.config',
                     group='odl_driver')
+cfg.CONF.import_opt('odl_nodes',
+                    'gbp.neutron.services.grouppolicy.drivers.odl.config',
+                    group='odl_driver')
 
 
 class OdlManager(object):
@@ -50,11 +53,14 @@ class OdlManager(object):
                  cfg.CONF.odl_driver.odl_host)
         LOG.info(_("Configured ODL port: %s"),
                  cfg.CONF.odl_driver.odl_port)
+        LOG.info(_("Configured ODL nodes: %s"),
+                 cfg.CONF.odl_driver.odl_nodes)
 
         self._username = cfg.CONF.odl_driver.odl_username
         self._password = cfg.CONF.odl_driver.odl_password
         self._host = cfg.CONF.odl_driver.odl_host
         self._port = cfg.CONF.odl_driver.odl_port
+        self._nodes = cfg.CONF.odl_driver.odl_nodes
         self._base_url = 'http://' + self._host + ':' + \
             self._port + '/restconf'
         self._reg_ep_url = self._base_url + \
@@ -103,7 +109,17 @@ class OdlManager(object):
             data = {"input": ep}
             self._sendjson('post', self._unreg_ep_url, self._headers, data)
 
-    def register_nodes(self, nodes):
+    def register_nodes(self):
+        pairs = self._nodes.split(',')
+        nodes = []
+        for pair in pairs:
+            (flow_id, ip) = pair.split(':')
+            nodes.append(
+                {
+                    "id": "openflow:"+flow_id,
+                    "ofoverlay:tunnel-ip": ip
+                }
+            )
         data = {"opendaylight-inventory:nodes": {"node": nodes}}
         self._sendjson('put', self._nodes_url, self._headers, data)
 
