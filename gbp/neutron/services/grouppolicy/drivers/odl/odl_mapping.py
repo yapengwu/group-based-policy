@@ -158,10 +158,10 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                       'policy_target_group_id': ptg['id'],
                       'port_id': port['id']}}
             self.gbp_plugin.create_policy_target(plugin_context, attrs)
-        sg_id = self._ensure_default_security_group(plugin_context,
-                                                    port['tenant_id'])
-        data = {'port': {'security_groups': [sg_id]}}
-        self._core_plugin.update_port(plugin_context, port['id'], data)
+        #sg_id = self._ensure_default_security_group(plugin_context,
+        #                                            port['tenant_id'])
+        #data = {'port': {'security_groups': [sg_id]}}
+        #self._core_plugin.update_port(plugin_context, port['id'], data)
 
     def create_policy_target_postcommit(self, context):
         super(OdlMappingDriver, self).create_policy_target_postcommit(context)
