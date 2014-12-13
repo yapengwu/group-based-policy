@@ -10,30 +10,39 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import netaddr
-import uuid
-
+# import netaddr
 # from keystoneclient.v2_0 import client as keyclient
+# from neutron.common import log
+# from neutron.extensions import providernet as pn
+# from neutron.extensions import securitygroup as ext_sg
+# from neutron.plugins.ml2.drivers.cisco.apic import apic_model
+# from neutron.plugins.ml2.drivers.cisco.apic import config
+# from neutron.plugins.ml2 import models
+# from oslo.config import cfg
+# from gbp.neutron.db.grouppolicy import group_policy_mapping_db as gpdb
+
+import uuid
+from gbp.neutron.services.grouppolicy.common import constants as g_const
+from gbp.neutron.services.grouppolicy.common import exceptions as gpexc
+from gbp.neutron.services.grouppolicy.drivers.odl import odl_manager
+from gbp.neutron.services.grouppolicy.drivers import resource_mapping as api
 from neutron import manager
-from neutron.common import log
-from neutron.extensions import providernet as pn
-from neutron.extensions import securitygroup as ext_sg
 from neutron.plugins.common import constants
 from neutron.openstack.common import lockutils
 from neutron.openstack.common import log as logging
-# from neutron.plugins.ml2.drivers.cisco.apic import apic_model
-# from neutron.plugins.ml2.drivers.cisco.apic import config
-from neutron.plugins.ml2 import models
-from oslo.config import cfg
-
-from gbp.neutron.db.grouppolicy import group_policy_mapping_db as gpdb
-from gbp.neutron.services.grouppolicy.common import constants as g_const
-from gbp.neutron.services.grouppolicy.common import exceptions as gpexc
-from gbp.neutron.services.grouppolicy.drivers import resource_mapping as api
-from gbp.neutron.services.grouppolicy.drivers.odl import odl_manager
 
 
 LOG = logging.getLogger(__name__)
+
+
+class UpdateL3PolicyNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update L3 Policy currently not supported on ODL GBP "
+                "driver.")
+
+
+class UpdateL2PolicyNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update L2 Policy currently not supported on ODL GBP "
+                "driver.")
 
 
 class UpdatePTNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
@@ -52,6 +61,11 @@ class L2PolicyMultiplePolicyTargetGroupNotSupportedOnOdlDriver(
                 "ODL GBP driver.")
 
 
+class UpdatePolicyActionNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update Policy Action currently not supported on ODL GBP "
+                "driver.")
+
+
 class RedirectActionNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
     message = _("Redirect action is currently not supported for ODL GBP "
                 "driver.")
@@ -59,6 +73,11 @@ class RedirectActionNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
 
 class OnlyAllowActionSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
     message = _("Currently only allow action is supported for ODL GBP "
+                "driver.")
+
+
+class UpdateClassifierNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update Policy Classifier currently not supported on ODL GBP "
                 "driver.")
 
 
@@ -103,6 +122,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         super(OdlMappingDriver, self).initialize()
         self.odl_manager = OdlMappingDriver.get_odl_manager()
         self._gbp_plugin = None
+        self.odl_manager.register_nodes()
         OdlMappingDriver.me = self
 
     @property
@@ -177,6 +197,9 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         }
         self.odl_manager.create_update_l3_context(tenant_id, l3ctx)
 
+    def update_l3_policy_precommit(self, context):
+        raise UpdateL3PolicyNotSupportedOnOdlDriver()
+
     def delete_l3_policy_postcommit(self, context):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
         l3ctx = {
@@ -197,15 +220,19 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         }
         self.odl_manager.create_update_l2_bridge_domain(tenant_id, l2bd)
 
-        # Implicit network within l2 policy creation is mapped to l2 flood domain in ODL
+        # Implicit network within l2 policy mapped to l2 FD in ODL
         net_id = context.current['network_id']
-        network = self._core_plugin.get_network(context._plugin_context, net_id)
+        network = self._core_plugin.get_network(context._plugin_context,
+                                                net_id)
         l2fd = {
             "id": net_id,
             "name": network['name'],
             "parent": context.current['id']
         }
         self.odl_manager.create_update_l2_flood_domain(tenant_id, l2fd)
+
+    def update_l2_policy_precommit(self, context):
+        raise UpdateL2PolicyNotSupportedOnOdlDriver()
 
     def delete_l2_policy_postcommit(self, context):
         super(OdlMappingDriver, self).delete_l2_policy_postcommit(context)
@@ -217,7 +244,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         }
         self.odl_manager.delete_l2_bridge_domain(tenant_id, l2bd)
 
-        # Implicit network within l2 policy creation is mapped to l2 flood domain in ODL
+        # Implicit network within l2 policy mapped to l2 FD in ODL
         net_id = context.current['network_id']
         l2fd = {
             "id": net_id,
@@ -229,12 +256,12 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             context)
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
         subnets = context.current['subnets']
-        provided_contract =\
-            self._make_odl_contract_and_clause(context,
-                                          context.current['provided_policy_rule_sets'])
-        consumed_contract =\
-            self._make_odl_contract_and_clause(context,
-                                          context.current['consumed_policy_rule_sets'])
+        provided_contract = self._make_odl_contract_and_clause(
+            context,context.current['provided_policy_rule_sets']
+        )
+        consumed_contract =self._make_odl_contract_and_clause(
+            context, context.current['consumed_policy_rule_sets']
+        )
 
         # PTG mapped to EPG in ODL
         epg = {
@@ -246,22 +273,26 @@ class OdlMappingDriver(api.ResourceMappingDriver):
 
         if provided_contract:
             epg['provider-named-selector'] = {
-                "name": context.current['id'] + '-any-' + provided_contract['id'],
+                "name": 'Contract-' + provided_contract['id'],
                 "contract": provided_contract['id']
             }
-            self.odl_manager.create_update_contract(tenant_id, provided_contract)
+            self.odl_manager.create_update_contract(tenant_id,
+                                                    provided_contract)
         if consumed_contract:
             epg['consumer-named-selector'] = {
-                "name": 'any-' + context.current['id'] + '-' + consumed_contract['id'],
+                "name": 'Contract-' + consumed_contract['id'],
                 "contract": consumed_contract['id']
             }
-            self.odl_manager.create_update_contract(tenant_id, consumed_contract)
+            self.odl_manager.create_update_contract(tenant_id,
+                                                    consumed_contract)
 
         self.odl_manager.create_update_endpoint_group(tenant_id, epg)
 
         # Implicit subnet within policy target group mapped to subnet in ODL
         for subnet_id in subnets:
-            neutron_subnet = self._core_plugin.get_subnet(context._plugin_context, subnet_id)
+            neutron_subnet = self._core_plugin.get_subnet(
+                context._plugin_context, subnet_id
+            )
             odl_subnet = {
                 "id": subnet_id,
                 "ip-prefix": neutron_subnet['cidr'],
@@ -288,7 +319,8 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                 subject = self._make_subject(context, rule_set_id)
                 subjects.append(subject)
                 subject_names.append(subject['name'])
-            clause_name = "-".join(sorted(subject_names)).encode('ascii', 'ignore')
+            clause_name = "-".join(sorted(subject_names)).encode('ascii',
+                                                                 'ignore')
             contract_id = uuid.uuid3(uuid.NAMESPACE_DNS, clause_name).urn[9:]
             clauses = [
                 {
@@ -329,12 +361,12 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         classifier_refs = []
         classifiers = self._make_odl_classifiers(stack_classifier)
         for classifier in classifiers:
-            classifier_refs.append(
-                {
-                    "name": classifier['name'],
-                    "direction": classifier['direction']
-                }
-            )
+            classifier_ref = {
+                "name": classifier['name']
+            }
+            if classifier['direction'] != "bidirectional":
+                classifier_ref['direction'] = classifier['direction']
+            classifier_refs.append(classifier_ref)
         action_refs = []
         for action_id in rule['policy_actions']:
             action = context._plugin.get_policy_action(
@@ -346,10 +378,10 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                 }
             )
 
+        # TODO(ODL): send action_refs later but not for PoC
         return {
             "name": rule['name'],
             "classifier-ref": classifier_refs,
-            "action-ref": action_refs
         }
 
     def update_policy_target_group_precommit(self, context):
@@ -381,34 +413,41 @@ class OdlMappingDriver(api.ResourceMappingDriver):
 
     def create_policy_action_postcommit(self, context):
         super(OdlMappingDriver, self).create_policy_action_postcommit(context)
-        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+        # TODO(ODL): remove comment out after PoC
+        # tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
         # fill in action instance data
         if context.current['action_type'] == g_const.GP_ACTION_ALLOW:
-            action_definition_id = "f942e8fd-e957-42b7-bd18-f73d11266d17"
-            action_instance = {
-                "action-definition-id": action_definition_id,
-                "name": context.current['name'],
-                "parameter-value": [
-                    {
-                        "name": context.current['name'],
-                        "string-value": context.current['action_type'],
-                    }
-                ]
-            }
-            self.odl_manager.create_action(tenant_id, action_instance)
+            # TODO(ODL): remove the return and comment out after POC
+            return
+            # action_definition_id = "f942e8fd-e957-42b7-bd18-f73d11266d17"
+            # action_instance = {
+            #     "action-definition-id": action_definition_id,
+            #     "name": context.current['name'],
+            #     "parameter-value": [
+            #         {
+            #             "name": context.current['name'],
+            #             "string-value": context.current['action_type'],
+            #         }
+            #     ]
+            # }
+            # self.odl_manager.create_action(tenant_id, action_instance)
         else:
             raise OnlyAllowActionSupportedOnOdlDriver()
 
+    def update_policy_action_precommit(self, context):
+        raise UpdatePolicyActionNotSupportedOnOdlDriver()
+
     def delete_policy_action_postcommit(self, context):
         super(OdlMappingDriver, self).delete_policy_action_postcommit(context)
-        tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
-
-        # fill in action instance data
-        action_instance = {
-            "name": context.current['name']
-        }
-        self.odl_manager.delete_action(tenant_id, action_instance)
+        # TODO(ODL): remove comment out after PoC
+        # tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
+        #
+        # # fill in action instance data
+        # action_instance = {
+        #     "name": context.current['name']
+        # }
+        # self.odl_manager.delete_action(tenant_id, action_instance)
 
     def create_policy_classifier_postcommit(self, context):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
@@ -480,6 +519,9 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                 classifiers.append(classifier)
         return classifiers
 
+    def update_policy_classifier_precommit(self, context):
+        raise UpdateClassifierNotSupportedOnOdlDriver()
+
     def delete_policy_classifier_postcommit(self, context):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
 
@@ -492,16 +534,11 @@ class OdlMappingDriver(api.ResourceMappingDriver):
             return
 
         # fill in classifier instance data
-        classifier_instance = {
-            "name": context.current['name'] + '-dest',
-        }
-        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
-
-        # fill in classifier instance data
-        classifier_instance = {
-            "name": context.current['name'] + '-src',
-        }
-        self.odl_manager.delete_classifier(tenant_id, classifier_instance)
+        for port in ['sourceport', 'destport']:
+            classifier_instance = {
+                "name": context.current['name'] + '-' + port,
+            }
+            self.odl_manager.delete_classifier(tenant_id, classifier_instance)
 
     def create_policy_rule_precommit(self, context):
         if ('policy_actions' in context.current and
@@ -512,23 +549,6 @@ class OdlMappingDriver(api.ResourceMappingDriver):
     def update_policy_rule_precommit(self, context):
         # TODO(ivar): add support for action update on policy rules
         raise PolicyRuleUpdateNotSupportedOnOdlDriver()
-
-    def create_policy_rule_postcommit(self, context):
-        action = context._plugin.get_policy_action(
-            context._plugin_context, context.current['policy_actions'][0])
-        classifier = context._plugin.get_policy_classifier(
-            context._plugin_context,
-            context.current['policy_classifier_id'])
-        if action['action_type'] == g_const.GP_ACTION_ALLOW:
-            port_min, port_max = (
-                gpdb.GroupPolicyMappingDbPlugin._get_min_max_ports_from_range(
-                    classifier['port_range']))
-            attrs = {'etherT': 'ip',
-                     'prot': classifier['protocol'].lower()}
-            if port_min and port_max:
-                attrs['dToPort'] = port_max
-                attrs['dFromPort'] = port_min
-            # TODO: need to call Odl manager here to set up the rule, or save it somewhere for later
 
     def _get_pt_detail(self, context):
         port_id = context.current['port_id']

@@ -24,8 +24,11 @@ od_driver_opts = [
                default='127.0.0.1',
                help=_("OpenDaylight Controller host ip address")),
     cfg.StrOpt('odl_port',
-               default='admin',
+               default='8080',
                help=_("OpenDaylight Controller Rest API port number")),
+    cfg.StrOpt('odl_nodes',
+               default='1:127.0.0.1,2:127.0.0.2',
+               help=_("OfOverlay Nodes: FlowID:TunnelIP Pair"))
 ]
 
 
