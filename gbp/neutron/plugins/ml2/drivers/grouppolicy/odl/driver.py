@@ -36,8 +36,12 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
         return self._odl_gbp
 
     def create_port_postcommit(self, context):
-        # TODO(ywu): will investigate what to do
-        pass
+        # DHCP Ports are created implicitly by Neutron, need to inform GBP
+        if (context.current.get('device_owner') ==
+                n_constants.DEVICE_OWNER_DHCP):
+            self.odl_gbp.create_dhcp_policy_target_if_needed(
+                context._plugin_context, context.current)
+
 
     def update_port_postcommit(self, context):
         # TODO(ywu): will investigate what to do

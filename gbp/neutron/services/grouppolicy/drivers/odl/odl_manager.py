@@ -15,7 +15,7 @@ import requests
 from neutron.openstack.common import log as logging
 from oslo.config import cfg
 from oslo.serialization import jsonutils
-from requests.auth import HTTPBasicAuth
+from requests import auth
 
 LOG = logging.getLogger(__name__)
 cfg.CONF.import_opt('odl_username',
@@ -74,24 +74,39 @@ class OdlManager(object):
         self._headers = {'Content-type': 'application/yang.data+json',
                          'Accept': 'application/yang.data+json'}
 
+    def _convert2ascii(self, obj):
+        if isinstance(obj, dict):
+            return {self._convert2ascii(key): self._convert2ascii(value) for key, value in obj.iteritems()}
+        elif isinstance(obj, list):
+            return [self._convert2ascii(element) for element in obj]
+        elif isinstance(obj, unicode):
+            return obj.encode('ascii', 'ignore')
+        else:
+            return obj
+
     def _sendjson(self, method, url, headers, obj=None):
         """Send json to the ODL controller."""
 
-        data = jsonutils.dumps(obj, indent=2, sort_keys=True) if obj else None
-        LOG.debug("Sending METHOD (%(method)s) URL (%(url)s) JSON (%(obj)s)",
-                  {'method': method, 'url': url, 'obj': obj})
+        medium = self._convert2ascii(obj) if obj else None
+        data = jsonutils.dumps(medium, indent=4, sort_keys=True) if medium else None
+        LOG.debug("==========================================================")
+        LOG.debug("Sending METHOD (%(method)s) URL (%(url)s)",
+                  {'method': method, 'url': url})
+        LOG.debug("(%(data)s)",
+                  {'data': data})
+        LOG.debug("==========================================================")
         r = requests.request(method, url=url,
                              headers=headers, data=data,
-                             auth=HTTPBasicAuth(self._username,
-                                                self._password))
+                             auth=auth.HTTPBasicAuth(self._username,
+                                                     self._password))
         r.raise_for_status()
 
     def _is_tenant_created(self, tenant_id):
         url = self._policy_url + '/' + tenant_id
         r = requests.request('get', url=url,
                              headers=self._headers,
-                             auth=HTTPBasicAuth(self._username,
-                                                self._password))
+                             auth=auth.HTTPBasicAuth(self._username,
+                                                     self._password))
         if r.status_code == 200:
             return True
         elif r.status_code == 404:

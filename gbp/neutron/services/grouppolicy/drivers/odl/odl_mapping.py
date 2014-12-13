@@ -22,14 +22,15 @@
 # from gbp.neutron.db.grouppolicy import group_policy_mapping_db as gpdb
 
 import uuid
+
 from gbp.neutron.services.grouppolicy.common import constants as g_const
 from gbp.neutron.services.grouppolicy.common import exceptions as gpexc
 from gbp.neutron.services.grouppolicy.drivers.odl import odl_manager
 from gbp.neutron.services.grouppolicy.drivers import resource_mapping as api
 from neutron import manager
-from neutron.plugins.common import constants
-from neutron.openstack.common import lockutils
+from neutron.openstack.common import lockutils #noqa
 from neutron.openstack.common import log as logging
+from neutron.plugins.common import constants
 
 
 LOG = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         super(OdlMappingDriver, self).initialize()
         self.odl_manager = OdlMappingDriver.get_odl_manager()
         self._gbp_plugin = None
-        #self.odl_manager.register_nodes()
+        # self.odl_manager.register_nodes()
         OdlMappingDriver.me = self
 
     @property
@@ -257,17 +258,17 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         tenant_id = uuid.UUID(context.current['tenant_id']).urn[9:]
         subnets = context.current['subnets']
         provided_contract = self._make_odl_contract_and_clause(
-            context,context.current['provided_policy_rule_sets']
+            context, context.current['provided_policy_rule_sets']
         )
-        consumed_contract =self._make_odl_contract_and_clause(
+        consumed_contract = self._make_odl_contract_and_clause(
             context, context.current['consumed_policy_rule_sets']
         )
 
         # PTG mapped to EPG in ODL
+        # TODO(ODL); add back description field after PoC
         epg = {
             "id": context.current['id'],
             "name": context.current['name'],
-            "description": context.current['description'],
             "network-domain": subnets[0]
         }
 
