@@ -122,7 +122,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         super(OdlMappingDriver, self).initialize()
         self.odl_manager = OdlMappingDriver.get_odl_manager()
         self._gbp_plugin = None
-        self.odl_manager.register_nodes()
+        #self.odl_manager.register_nodes()
         OdlMappingDriver.me = self
 
     @property
