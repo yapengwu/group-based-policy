@@ -76,7 +76,8 @@ class OdlManager(object):
 
     def _convert2ascii(self, obj):
         if isinstance(obj, dict):
-            return {self._convert2ascii(key): self._convert2ascii(value) for key, value in obj.iteritems()}
+            return {self._convert2ascii(key): self._convert2ascii(value) for
+                    key, value in obj.iteritems()}
         elif isinstance(obj, list):
             return [self._convert2ascii(element) for element in obj]
         elif isinstance(obj, unicode):
@@ -88,7 +89,8 @@ class OdlManager(object):
         """Send json to the ODL controller."""
 
         medium = self._convert2ascii(obj) if obj else None
-        data = jsonutils.dumps(medium, indent=4, sort_keys=True) if medium else None
+        data = jsonutils.dumps(medium, indent=4, sort_keys=True) if medium \
+            else None
         LOG.debug("==========================================================")
         LOG.debug("Sending METHOD (%(method)s) URL (%(url)s)",
                   {'method': method, 'url': url})
@@ -128,10 +130,12 @@ class OdlManager(object):
         pairs = self._nodes.split(',')
         nodes = []
         for pair in pairs:
-            (flow_id, ip) = pair.split(':')
+            (dpid, ip) = pair.split(':')
+            if dpid.startswith('0x'):
+                dpid = int(dpid, 16)
             nodes.append(
                 {
-                    "id": "openflow:" + flow_id,
+                    "id": "openflow:" + dpid,
                     "ofoverlay:tunnel-ip": ip
                 }
             )

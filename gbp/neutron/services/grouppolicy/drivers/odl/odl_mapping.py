@@ -10,16 +10,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-# import netaddr
-# from keystoneclient.v2_0 import client as keyclient
-# from neutron.common import log
-# from neutron.extensions import providernet as pn
-# from neutron.extensions import securitygroup as ext_sg
-# from neutron.plugins.ml2.drivers.cisco.apic import apic_model
-# from neutron.plugins.ml2.drivers.cisco.apic import config
-# from neutron.plugins.ml2 import models
-# from oslo.config import cfg
-
 import uuid
 
 from gbp.neutron.db.grouppolicy import group_policy_mapping_db as gpdb
@@ -28,7 +18,7 @@ from gbp.neutron.services.grouppolicy.common import exceptions as gpexc
 from gbp.neutron.services.grouppolicy.drivers.odl import odl_manager
 from gbp.neutron.services.grouppolicy.drivers import resource_mapping as api
 from neutron import manager
-from neutron.openstack.common import lockutils #noqa
+from neutron.openstack.common import lockutils  # noqa
 from neutron.openstack.common import log as logging
 from neutron.plugins.common import constants
 
@@ -123,7 +113,7 @@ class OdlMappingDriver(api.ResourceMappingDriver):
         super(OdlMappingDriver, self).initialize()
         self.odl_manager = OdlMappingDriver.get_odl_manager()
         self._gbp_plugin = None
-        # self.odl_manager.register_nodes()
+        self.odl_manager.register_nodes()
         OdlMappingDriver.me = self
 
     @property
@@ -145,17 +135,14 @@ class OdlMappingDriver(api.ResourceMappingDriver):
 
         # Retrieve PTG
         # TODO(ywu): optimize later
-        subnets = self._core_plugin._get_subnets_by_network(plugin_context, port['network_id'])
+        subnets = self._core_plugin._get_subnets_by_network(
+            plugin_context, port['network_id']
+        )
         ptg = (plugin_context.session.query(gpdb.PolicyTargetGroupMapping).
                join(gpdb.PolicyTargetGroupMapping.subnets).
                filter(gpdb.PTGToSubnetAssociation.subnet_id ==
                       subnets[0]['id']).
                first())
-        #filters = {'network_id': [port['network_id']]}
-        #ptgs = self.gbp_plugin.get_policy_target_groups(
-        #    plugin_context, filters=filters)
-        #if ptgs:
-        #    ptg = ptgs[0]
 
         # Create PolicyTarget
         attrs = {'policy_target':
@@ -166,10 +153,11 @@ class OdlMappingDriver(api.ResourceMappingDriver):
                   'policy_target_group_id': ptg['id'],
                   'port_id': port['id']}}
         self.gbp_plugin.create_policy_target(plugin_context, attrs)
-        #sg_id = self._ensure_default_security_group(plugin_context,
+        # TODO(ODL): security group is not required
+        # sg_id = self._ensure_default_security_group(plugin_context,
         #                                            port['tenant_id'])
-        #data = {'port': {'security_groups': [sg_id]}}
-        #self._core_plugin.update_port(plugin_context, port['id'], data)
+        # data = {'port': {'security_groups': [sg_id]}}
+        # self._core_plugin.update_port(plugin_context, port['id'], data)
 
     def create_policy_target_postcommit(self, context):
         super(OdlMappingDriver, self).create_policy_target_postcommit(context)

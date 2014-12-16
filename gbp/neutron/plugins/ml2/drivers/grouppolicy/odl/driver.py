@@ -10,15 +10,25 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from gbp.neutron.services.grouppolicy.common import exceptions as gpexc
+from gbp.neutron.services.grouppolicy.drivers.odl import odl_mapping
 from neutron.common import constants as n_constants
 from neutron.extensions import portbindings
 from neutron.openstack.common import log
 from neutron.plugins.common import constants
 from neutron.plugins.ml2 import driver_api as api
 
-from gbp.neutron.services.grouppolicy.drivers.odl import odl_mapping
-
 LOG = log.getLogger(__name__)
+
+
+class UpdatePortNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update Port currently not supported on ODL GBP Mech "
+                "driver.")
+
+
+class UpdateSubnetNotSupportedOnOdlDriver(gpexc.GroupPolicyBadRequest):
+    message = _("Update Subnet currently not supported on ODL GBP Mech "
+                "driver.")
 
 
 class OdlMechanismGBPDriver(api.MechanismDriver):
@@ -32,7 +42,7 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
     def odl_gbp(self):
         if not self._odl_gbp:
             self._odl_gbp = (odl_mapping.OdlMappingDriver.
-                              get_initialized_instance())
+                             get_initialized_instance())
         return self._odl_gbp
 
     def create_port_postcommit(self, context):
@@ -40,16 +50,14 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
         if (context.current.get('device_owner') ==
                 n_constants.DEVICE_OWNER_DHCP):
             self.odl_gbp.create_dhcp_policy_target_if_needed(
-                context._plugin_context, context.current)
-
+                context._plugin_context, context.current
+            )
 
     def update_port_postcommit(self, context):
-        # TODO(ywu): will investigate what to do
-        pass
+        raise UpdatePortNotSupportedOnOdlDriver()
 
     def update_subnet_postcommit(self, context):
-        # TODO(ywu): will investigate what to do
-        pass
+        raise UpdateSubnetNotSupportedOnOdlDriver()
 
     def bind_port(self, context):
         LOG.debug("Attempting to bind port %(port)s on "
@@ -57,7 +65,7 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
                   {'port': context.current['id'],
                    'network': context.network.current['id']})
         for segment in context.network.network_segments:
-            if self.check_segment(segment):
+            if self._check_segment(segment):
                 context.set_binding(segment[api.ID],
                                     self.vif_type,
                                     self.vif_details,
@@ -73,7 +81,7 @@ class OdlMechanismGBPDriver(api.MechanismDriver):
                            'physnet': segment[api.PHYSICAL_NETWORK],
                            'nettype': segment[api.NETWORK_TYPE]})
 
-    def check_segment(self, segment):
+    def _check_segment(self, segment):
         """Verify a segment is valid for the OpenDaylight MechanismDriver.
 
         Verify the requested segment is supported by ODL and return True or
